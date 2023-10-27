@@ -76,6 +76,7 @@ cv::Mat getImageFromMsg(const sensor_msgs::ImageConstPtr &img_msg)
 
 // extract images with same timestamp from two topics
 //同步左右目图像，并将同步好的图像输入estimator 
+//***estimator的入口, sync_process--->estimator::inputImage()--->estimator::processMeasurements()--->processImage(),状态估计的部分就在processImage()中
 void sync_process()
 {
     while(1)
@@ -146,7 +147,7 @@ void sync_process()
             //解锁
             m_buf.unlock();
             if(!image.empty())
-                //将图像输入到估计器中，在输入图像的函数中，状态估计就已经开始了
+                //***将图像输入到估计器中，在输入图像的函数中，状态估计就已经开始了
                 estimator.inputImage(time, image);
         }
 
@@ -293,7 +294,7 @@ int main(int argc, char **argv)
     ros::Subscriber sub_restart = n.subscribe("/vins_restart", 100, restart_callback);
     ros::Subscriber sub_imu_switch = n.subscribe("/vins_imu_switch", 100, imu_switch_callback);
     ros::Subscriber sub_cam_switch = n.subscribe("/vins_cam_switch", 100, cam_switch_callback);
-    //同步处理
+    //同步处理：sync_process是estimator的入口
     std::thread sync_thread{sync_process};
     ros::spin();
 

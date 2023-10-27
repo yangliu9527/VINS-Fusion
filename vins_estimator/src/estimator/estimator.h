@@ -78,6 +78,8 @@ class Estimator
     void updateLatestStates();
     void fastPredictIMU(double t, Eigen::Vector3d linear_acceleration, Eigen::Vector3d angular_velocity);
     bool IMUAvailable(double t);
+
+    //利用加表数据初始化姿态（只调整旋转，使其与重力方向对齐）
     void initFirstIMUPose(vector<pair<double, Eigen::Vector3d>> &accVector);
 
     enum SolverFlag
@@ -114,11 +116,12 @@ class Estimator
     Matrix3d ric[2];
     Vector3d tic[2];
 
-    Vector3d        Ps[(WINDOW_SIZE + 1)];
-    Vector3d        Vs[(WINDOW_SIZE + 1)];
-    Matrix3d        Rs[(WINDOW_SIZE + 1)];
-    Vector3d        Bas[(WINDOW_SIZE + 1)];
-    Vector3d        Bgs[(WINDOW_SIZE + 1)];
+    //存放滑窗内所有状态的数组
+    Vector3d        Ps[(WINDOW_SIZE + 1)];//位置
+    Vector3d        Vs[(WINDOW_SIZE + 1)];//速度
+    Matrix3d        Rs[(WINDOW_SIZE + 1)];//旋转矩阵
+    Vector3d        Bas[(WINDOW_SIZE + 1)];//加表零偏
+    Vector3d        Bgs[(WINDOW_SIZE + 1)];//陀螺零偏
     double td;
 
     Matrix3d back_R0, last_R, last_R0;
