@@ -386,9 +386,10 @@ void Estimator::initFirstIMUPose(vector<pair<double, Eigen::Vector3d>> &accVecto
     {
         averAcc = averAcc + accVector[i].second;
     }
+    //计算平均加速度
     averAcc = averAcc / n;
     printf("averge acc %f %f %f\n", averAcc.x(), averAcc.y(), averAcc.z());
-    // 计算平均加速度方向和[0,0,1]垂直方向的旋转关系（在VINS里以IMU的坐标系为主）
+    // 计算平均加速度方向和[0,0,1]垂直方向的旋转关系（在VINS里以IMU的坐标系为主，IMU坐标系的z轴垂直于地面（xyz对应前右下）
     Matrix3d R0 = Utility::g2R(averAcc);
     // 从R0中解出偏航角
     double yaw = Utility::R2ypr(R0).x();
@@ -538,6 +539,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         // 双目视觉惯性初始化
         if (STEREO && USE_IMU)
         {
+            //双目情况下，直接给当前帧通过PnP赋初值
             f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
             f_manager.triangulate(frame_count, Ps, Rs, tic, ric);
             if (frame_count == WINDOW_SIZE)
@@ -563,7 +565,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
             }
         }
 
-        // stereo only initilization
+        // stereo only initilization(其实就是不用初始化)
         if (STEREO && !USE_IMU)
         {
             f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
@@ -677,7 +679,7 @@ bool Estimator::initialStructure()
     vector<SFMFeature> sfm_f;                 // 准备个vector存放sfm出来的特征
     for (auto &it_per_id : f_manager.feature) // 遍历滑窗内所有特征
     {
-        int imu_j = it_per_id.start_frame - 1; // 开一个计数器
+        int imu_j = it_per_id.start_frame - 1; // 开一个计数器，初始为第一次被观测的帧
         SFMFeature tmp_feature;                // 建立一个临时sfmfeature
         tmp_feature.state = false;             // sfmfeature状态先置为否，这个状态代表是否三角化
         tmp_feature.id = it_per_id.feature_id; // sfmfeature的id置为特征id

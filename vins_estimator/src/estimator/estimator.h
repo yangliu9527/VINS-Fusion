@@ -79,7 +79,7 @@ class Estimator
     void fastPredictIMU(double t, Eigen::Vector3d linear_acceleration, Eigen::Vector3d angular_velocity);
     bool IMUAvailable(double t);
 
-    //利用加表数据初始化姿态（只调整旋转，使其与重力方向对齐）
+    //利用加表数据初始化姿态（只调整旋转，使其与平均加速度方向对齐）
     void initFirstIMUPose(vector<pair<double, Eigen::Vector3d>> &accVector);
 
     enum SolverFlag
@@ -117,6 +117,7 @@ class Estimator
     Vector3d tic[2];
 
     //存放滑窗内所有状态的数组
+    //滑窗尺寸为WINDOW_SIZE，但数组要多一维来存放当前变量
     Vector3d        Ps[(WINDOW_SIZE + 1)];//位置
     Vector3d        Vs[(WINDOW_SIZE + 1)];//速度
     Matrix3d        Rs[(WINDOW_SIZE + 1)];//旋转矩阵
@@ -135,6 +136,9 @@ class Estimator
     vector<Vector3d> linear_acceleration_buf[(WINDOW_SIZE + 1)];
     vector<Vector3d> angular_velocity_buf[(WINDOW_SIZE + 1)];
 
+    //这个frame_count代表滑动窗口内的帧数（包括当前帧的），所以
+    //用[frame_count]索引的一般是当前正在处理的
+    //Rs[frame_count]一般就代表正在处理和估计的旋转
     int frame_count;
     int sum_of_outlier, sum_of_back, sum_of_front, sum_of_invalid;
     int inputImageCnt;
