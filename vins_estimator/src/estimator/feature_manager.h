@@ -25,6 +25,7 @@ using namespace Eigen;
 #include "parameters.h"
 #include "../utility/tic_toc.h"
 
+// 一个观测特征（类似于ORBSLAM中的KeyPoint）
 class FeaturePerFrame
 {
   public:
@@ -51,11 +52,11 @@ class FeaturePerFrame
         velocityRight.y() = _point(6); 
         is_stereo = true;
     }
-    double cur_td;
-    Vector3d point, pointRight;
-    Vector2d uv, uvRight;
-    Vector2d velocity, velocityRight;
-    bool is_stereo;
+    double cur_td;//当前延迟（特征时间戳与当前帧时间戳之间的延迟）
+    Vector3d point, pointRight;//归一化相机系下观测坐标
+    Vector2d uv, uvRight;//像素坐标
+    Vector2d velocity, velocityRight;//归一化相机系下坐标的速度
+    bool is_stereo;//这一特征是否为双目
 };
 
 class FeaturePerId

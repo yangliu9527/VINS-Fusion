@@ -123,7 +123,8 @@ class Estimator
     Matrix3d        Rs[(WINDOW_SIZE + 1)];//旋转矩阵
     Vector3d        Bas[(WINDOW_SIZE + 1)];//加表零偏
     Vector3d        Bgs[(WINDOW_SIZE + 1)];//陀螺零偏
-    double td;
+    //
+    double td;//特征提取的时间戳(featureTime)与图像帧时间戳（curTime)之间的延迟:curTime = featureTime+td
 
     Matrix3d back_R0, last_R, last_R0;
     Vector3d back_P0, last_P, last_P0;

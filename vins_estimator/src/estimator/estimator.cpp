@@ -289,7 +289,7 @@ void Estimator::processMeasurements()
     {
         // printf("process measurments\n");
         // 要处理的一帧特征，从buffer里取，first的double是时间戳，second的map和feature_tracker.track_image返回的featureframe一样：一个时间戳对应一帧的全部特征
-        // map和feature_tracker.track_image返回的类型一样：key值为featureid，value值为map：key值为相机id，value值为vector,单目时vector只存一个7x1向量：[归一化平面x,归一化平面y,1,像素平面x,像素平面y,归一化平面速度x,归一化平面速度y]
+        // 特征的map和feature_tracker.track_image返回的类型一样：key值为featureid，value值为map：key值为相机id，value值为vector,单目时vector只存一个7x1向量：[归一化平面x,归一化平面y,1,像素平面x,像素平面y,归一化平面速度x,归一化平面速度y]
         //双目时存两个
         pair<double, map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>>> feature;
         vector<pair<double, Eigen::Vector3d>> accVector, gyrVector; // double是时间戳
@@ -297,7 +297,7 @@ void Estimator::processMeasurements()
         {
             // 1.准备当前图像帧（实际上是buffer里最老的），当前时刻也由这一帧的时间戳决定
             feature = featureBuf.front(); // 因为每追踪完一帧图像就把featureframe推入先进先出的buffer，所以要取最老的feature出来
-            curTime = feature.first + td; // 当前时刻由特征（其实就是图像时间戳）加上一个固定延迟
+            curTime = feature.first + td; // 当前时刻由特征图像时间戳加上一个固定延迟
             while (1)
             {
                 if ((!USE_IMU || IMUAvailable(feature.first + td))) // 检查是否使用IMU，并检查是否有可用IMU数据
@@ -321,8 +321,8 @@ void Estimator::processMeasurements()
 
             if (USE_IMU)
             {
-                if (!initFirstPoseFlag) // 要是没有初始化位姿，首先要进行IMU位姿初始化，将初始位姿与平均加速度方向对齐
-                    initFirstIMUPose(accVector);
+                if (!initFirstPoseFlag) // 要是还没有初始化位姿，首先要姿态初始化，目的是给定IMU的参考坐标系
+                    initFirstIMUPose(accVector); //参考坐标系也就是世界坐标系，但并不是系统第一个历元的b系，而是一个z轴与重力对齐，偏航角为0的参考系），这里赋予了第一个Rs[0]初始值
                 for (size_t i = 0; i < accVector.size(); i++)
                 {
                     /*                                                                                                   --------dt----------
@@ -330,19 +330,20 @@ void Estimator::processMeasurements()
                     IMU数据之间的时间间隔，它的结构是：prevTime---dt--->imu[0]---dt--->imu[1]---dt--->imu[2]---...---imu[i-1]|---dt--->curTime-----imu[i]*/
                     double dt;
                     if (i == 0)
-                        dt = accVector[i].first - prevTime; // 因为accVector[i]肯定比prevTime大，所以第一个数据历元的时间间隔是第一个到上一帧之间的时间差异
-                    else if (i == accVector.size() - 1)     // 如果accVector[i]中除最后一个历元以外都小于curTime，所以最倒数第二个历元的时间间隔是当前帧时间戳减去倒数第二个历元时间戳
-                        dt = curTime - accVector[i - 1].first;
+                        dt = accVector[i].first - prevTime; // 第一个历元accVector[0]的dt：accVector[i]肯定比prevTime大，所以第一个数据历元的dt是第一个到上一帧之间的时间差异
+                    else if (i == accVector.size() - 1)     
+                        dt = curTime - accVector[i - 1].first;// 倒数第二个历元accVector[size-2]的dt:accVector[i]中除最后一个历元以外都小于curTime，所以倒数第二个历元的dt是当前帧时间戳减去倒数第二个历元时间戳
                     else
-                        dt = accVector[i].first - accVector[i - 1].first;
+                        dt = accVector[i].first - accVector[i - 1].first;// 其余历元的dt:与上一个历元之间的时间间隔
                     processIMU(accVector[i].first, dt, accVector[i].second, gyrVector[i].second); // 机械编排+预积分
                 }
             }
+
             //总结一下上面这些代码：
             //1.取出了buffer里最老的一帧特征当作当前帧
-            //2.取出了buffer里上一时刻和当前时刻的IMU数据
-            //3.预积分
-            //4.机械编排更新了当前位姿
+            //2.取出了buffer里上一时刻和当前时刻之间的IMU数据
+            //3.预积分：获得pre_integrations[frame_count]和temp_integration
+            //4.机械编排更新了当前位姿：Rs[frame_count], Ps[frame_count], Vs[frame_count]
 
             //接下来就要用图像特征去做滑动窗口优化了
             mProcess.lock();                             // 上锁，防止其它线程改变内参、状态量等等
@@ -389,7 +390,7 @@ void Estimator::initFirstIMUPose(vector<pair<double, Eigen::Vector3d>> &accVecto
     //计算平均加速度
     averAcc = averAcc / n;
     printf("averge acc %f %f %f\n", averAcc.x(), averAcc.y(), averAcc.z());
-    // 计算平均加速度方向和[0,0,1]垂直方向的旋转关系（在VINS里以IMU的坐标系为主，IMU坐标系的z轴垂直于地面（xyz对应前右下）
+    // 
     Matrix3d R0 = Utility::g2R(averAcc);
     // 从R0中解出偏航角
     double yaw = Utility::R2ypr(R0).x();
@@ -429,7 +430,7 @@ void Estimator::processIMU(double t, double dt, const Vector3d &linear_accelerat
     {
         pre_integrations[frame_count] = new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]};
     }
-    // 如果当前帧不是初始第一帧，则要进行预积分
+    // 如果当前帧不是初始第一帧，则进行预积分
     if (frame_count != 0)
     {
         // 第frame_count个预积分量计算
@@ -451,7 +452,7 @@ void Estimator::processIMU(double t, double dt, const Vector3d &linear_accelerat
         Ps[j] += dt * Vs[j] + 0.5 * dt * dt * un_acc;
         Vs[j] += dt * un_acc;
     }
-    // 将上一个IMU数据变量赋予当前IMU数据
+    // 将当前IMU数据赋予上一个IMU数据变量
     acc_0 = linear_acceleration;
     gyr_0 = angular_velocity;
 }
@@ -484,7 +485,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     ImageFrame imageframe(image, header);                                                        // 构建当前图像帧
     imageframe.pre_integration = tmp_pre_integration;                                            // 赋予当前图像帧的预积分量临时预积分量（上一时刻到这一时刻的预积分量）
     all_image_frame.insert(make_pair(header, imageframe));                                       // 插入到所有图像帧库里
-    tmp_pre_integration = new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]}; // 上一个临时预积分已经完成了它的使命，马上要去用于当前帧状态估计了，所以现在要新建一个为下一帧服务
+    tmp_pre_integration = new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]}; // 上一个临时预积分已经被赋予了图像帧，马上要去用于当前帧状态估计了，所以现在要新建一个为下一帧服务
 
     if (ESTIMATE_EXTRINSIC == 2) // 如果要在线标定外参，就要找当前帧和上一帧之间的特征关联，结合预积分量进行外参优化
     {
@@ -512,10 +513,11 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         // 单目视觉惯性初始化
         if (!STEREO && USE_IMU)
         {
-            if (frame_count == WINDOW_SIZE) // 凑够一个滑窗的图像帧才能进行初始化
+            // 凑够一个滑窗的图像帧才能进行初始化，实际上，当frame_count==WINDOW_SIZE时，Rs、Ps里已经有WINDOW_SIZE+1个位姿了
+            if (frame_count == WINDOW_SIZE) 
             {
                 bool result = false;
-                // 如果不需要在线标定外参，而且当前帧时间戳与初始时间戳大于0.1s，则可以进行sfm
+                // 如果不需要在线标定外参，而且当前帧时间戳与初始时间戳大于0.1s，则可以进行sfm（主要是为了凑够足够多的帧）
                 if (ESTIMATE_EXTRINSIC != 2 && (header - initial_timestamp) > 0.1)
                 {
 
@@ -582,6 +584,9 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
             }
         }
 
+        //frame_count=0时，当前帧是第一帧
+        //当frame_count==WINDOW_SIZE-1时，frame_count++=WINDOW_SIZE，说明当前正在处理的是第WINDOW_SIZE帧
+        
         if (frame_count < WINDOW_SIZE)
         {
             frame_count++;
@@ -671,15 +676,18 @@ bool Estimator::initialStructure()
             // return false;
         }
     }
-    // global sfm
 
+
+    // global sfm
+    //准备frame_count+1个容器存放要估计的位姿
+    //因为只有在frame_count==WINDOW_SIZE时才执行initstructure(),算上当前帧，一共有WINDOW_SIZE+1个位姿要估计
     Quaterniond Q[frame_count + 1];           // 准备frame_count+1个位置来存放旋转Q
     Vector3d T[frame_count + 1];              // 准备frame_count+1个位置来存放平移T
     map<int, Vector3d> sfm_tracked_points;    // 准备个map存放[feature_id，特征点]
     vector<SFMFeature> sfm_f;                 // 准备个vector存放sfm出来的特征
     for (auto &it_per_id : f_manager.feature) // 遍历滑窗内所有特征
     {
-        int imu_j = it_per_id.start_frame - 1; // 开一个计数器，初始为第一次被观测的帧
+        int imu_j = it_per_id.start_frame - 1; // 开一个计数器，初始为第一次被观测到的帧索引-1,例如第0帧被观测到，则这个计数一开始是-1
         SFMFeature tmp_feature;                // 建立一个临时sfmfeature
         tmp_feature.state = false;             // sfmfeature状态先置为否，这个状态代表是否三角化
         tmp_feature.id = it_per_id.feature_id; // sfmfeature的id置为特征id
@@ -702,6 +710,7 @@ bool Estimator::initialStructure()
         ROS_INFO("Not enough features or parallax; Move device around");
         return false;
     }
+    //上面的成功了，意味着在滑窗内找到了一帧和最后一帧有足够视差且质量较好的帧，可以进行sfm了
     // 创建一个sfm器，利用刚才找到的第l帧和滑窗最后一帧的相对位姿进行全局sfm
     GlobalSFM sfm;
     if (!sfm.construct(frame_count + 1, Q, T, l,

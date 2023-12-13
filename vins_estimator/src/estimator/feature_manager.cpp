@@ -61,7 +61,7 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
     last_average_parallax = 0;
     new_feature_num = 0;
     long_track_num = 0;
-    for (auto &id_pts : image) // 遍历左目相机每个特征
+    for (auto &id_pts : image) // 遍历左目相机每个特征（这里id_pts名字取得不好，只有一个pt而已）
     {
         FeaturePerFrame f_per_fra(id_pts.second[0].second, td); // 构建左目观测，即对于当前帧的观测（类似于ORB-SLAM中一个keypoint）
         assert(id_pts.second[0].first == 0);
@@ -72,15 +72,16 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
         }
 
         // 在所有历史feature中找对应feature_id的特征
-        // feature是一个list，存的是featurePerId，一个featurePerId存了若干个featurePerFrame（类似于ORB-SLAM中的MapPoint保存的观测关系，即一个特征被哪些帧看到了）
-        int feature_id = id_pts.first;
+        // feature是一个list，存的是featurePerId，而一个featurePerId存了若干个featurePerFrame，也就是地图点
+        // 一个featurePerId类似于ORB-SLAM中的MapPoint保存的观测关系，即一个特征被哪些帧看到
+        int feature_id = id_pts.first;//一个特征具有全局唯一id
         auto it = find_if(feature.begin(), feature.end(), [feature_id](const FeaturePerId &it)
                           { return it.feature_id == feature_id; });
         // 要是没找到，说明这是个新提取的特征，创建一个新的特征
         if (it == feature.end())
         {
-            feature.push_back(FeaturePerId(feature_id, frame_count));
-            feature.back().feature_per_frame.push_back(f_per_fra);
+            feature.push_back(FeaturePerId(feature_id, frame_count));//创建一个新地图点，frame_count指的是第一次被观测到的帧序号（滑动窗口里的）
+            feature.back().feature_per_frame.push_back(f_per_fra);//这个地图点的第一个观测就是这个特征
             new_feature_num++; // 新特征数目加1
         }
         // 要是找到了，说明这个特征之前就被观测过，补充新的观测关系featureperframe，也即feature_id对应的特征点有了新的观测
@@ -100,13 +101,13 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
         return true;
 
 
-    // 遍历每个特征，找到两帧以前就观测到的（意味着被观测次数大于2次）、最后一次观测是当前帧的特征点
+    // 遍历每个特征，计算倒数第二帧和倒数第三帧视差之和（倒数第一帧是当前帧）
     for (auto &it_per_id : feature) 
     {
-        if (it_per_id.start_frame <= frame_count - 2 &&
-            it_per_id.start_frame + int(it_per_id.feature_per_frame.size()) - 1 >= frame_count - 1)
+        if (it_per_id.start_frame <= frame_count - 2 && // 该特征在两帧之前就被观测到过
+            it_per_id.start_frame + int(it_per_id.feature_per_frame.size()) - 1 >= frame_count - 1)// 该帧最后一次被观测至少是倒数第二帧（这个条件就是保证倒数第二和倒数第三帧都有观测）
         {
-            //计算倒数第二帧和倒数第三帧该特征的的视差
+            //计算倒数第二帧和倒数第三帧该特征的的视差（倒数第一帧是当前帧）
             parallax_sum += compensatedParallax2(it_per_id, frame_count); // 计算
             parallax_num++;
         }
@@ -135,7 +136,8 @@ vector<pair<Vector3d, Vector3d>> FeatureManager::getCorresponding(int frame_coun
     // 遍历每个特征
     for (auto &it : feature)
     {
-        if (it.start_frame <= frame_count_l && it.endFrame() >= frame_count_r) // 观测到该特征的起始帧要小于等于前一帧，观测到该特征的最后一帧要大于等于后一帧
+        // 观测到该特征的起始帧要小于等于前一帧，观测到该特征的最后一帧要大于等于后一帧，意味着这一帧特征在l和r之间有足够的观测
+        if (it.start_frame <= frame_count_l && it.endFrame() >= frame_count_r) 
         {
             Vector3d a = Vector3d::Zero(), b = Vector3d::Zero();
             int idx_l = frame_count_l - it.start_frame;
@@ -536,17 +538,17 @@ void FeatureManager::removeFront(int frame_count)
     }
 }
 
-/// @brief 视差补偿
+/// @brief 视差补偿（但实际上惯导补偿的代码被注释掉了）
 /// @param it_per_id
 /// @param frame_count
-/// @return
+/// @return 实际上返回的是同一个地图点在倒数第二和倒数第三次观测时归一化相机坐标系下的距离
 double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int frame_count)
 {
     // check the second last frame is keyframe or not
     // parallax betwwen seconde last frame and third last frame
     // 计算倒数第二帧和倒数第三帧该特征的的视差
-    const FeaturePerFrame &frame_i = it_per_id.feature_per_frame[frame_count - 2 - it_per_id.start_frame];
-    const FeaturePerFrame &frame_j = it_per_id.feature_per_frame[frame_count - 1 - it_per_id.start_frame];
+    const FeaturePerFrame &frame_i = it_per_id.feature_per_frame[frame_count - 2 - it_per_id.start_frame];//该特征的倒数第三个观测
+    const FeaturePerFrame &frame_j = it_per_id.feature_per_frame[frame_count - 1 - it_per_id.start_frame];//该特征的倒数第二个观测
 
     double ans = 0;
     Vector3d p_j = frame_j.point;
@@ -557,6 +559,7 @@ double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int f
     Vector3d p_i = frame_i.point;
     Vector3d p_i_comp;
 
+    //这几行是惯导补偿
     // int r_i = frame_count - 2;
     // int r_j = frame_count - 1;
     // p_i_comp = ric[camera_id_j].transpose() * Rs[r_j].transpose() * Rs[r_i] * ric[camera_id_i] * p_i;
@@ -571,7 +574,7 @@ double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int f
     double v_i_comp = p_i_comp(1) / dep_i_comp;
     double du_comp = u_i_comp - u_j, dv_comp = v_i_comp - v_j;
 
-    ans = max(ans, sqrt(min(du * du + dv * dv, du_comp * du_comp + dv_comp * dv_comp)));
+    ans = max(ans, sqrt(min(du * du + dv * dv, du_comp * du_comp + dv_comp * dv_comp)));//返回视差
 
     return ans;
 }
