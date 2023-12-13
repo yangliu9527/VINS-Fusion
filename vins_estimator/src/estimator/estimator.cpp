@@ -517,11 +517,11 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
             if (frame_count == WINDOW_SIZE) 
             {
                 bool result = false;
-                // 如果不需要在线标定外参，而且当前帧时间戳与初始时间戳大于0.1s，则可以进行sfm（主要是为了凑够足够多的帧）
+                // 如果不需要在线标定外参，而且当前帧时间戳与初始时间戳大于0.1s，则可以进行视觉惯性初始化（主要是为了凑够足够多的帧）
                 if (ESTIMATE_EXTRINSIC != 2 && (header - initial_timestamp) > 0.1)
                 {
 
-                    result = initialStructure();
+                    result = initialStructure();//视觉惯性初始化：获取初始的R、P、V和重力、尺度、零偏
                     initial_timestamp = header;
                 }
                 if (result)
@@ -704,7 +704,7 @@ bool Estimator::initialStructure()
     Matrix3d relative_R;
     Vector3d relative_T;
     int l;
-    // 在滑窗内找一帧质量好的作为参考帧，计算其与滑窗内最后一帧的相对位姿
+    // 在滑窗内找一帧质量好的作为参考帧，计算其与滑窗内最后一帧的相对位姿Rrl,trl
     if (!relativePose(relative_R, relative_T, l))
     {
         ROS_INFO("Not enough features or parallax; Move device around");
@@ -882,12 +882,12 @@ bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
     for (int i = 0; i < WINDOW_SIZE; i++)
     {
         vector<pair<Vector3d, Vector3d>> corres;
-        corres = f_manager.getCorresponding(i, WINDOW_SIZE); // 获取窗口里第i帧和最后一帧之间的特征关联
+        corres = f_manager.getCorresponding(i, WINDOW_SIZE); // 获取窗口里第i帧和最后一帧之间的特征关联（两帧里属于同一个地图点的归一化平面点）
         if (corres.size() > 20)                              // 要是大于20个匹配，就接着进行视差大小的判断
         {
             double sum_parallax = 0;
             double average_parallax;
-            // 算一下特征的平均视差大小
+            // 算一下两帧匹配特征点的平均视差大小
             for (int j = 0; j < int(corres.size()); j++)
             {
                 Vector2d pts_0(corres[j].first(0), corres[j].first(1));
@@ -896,8 +896,8 @@ bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
                 sum_parallax = sum_parallax + parallax;
             }
             average_parallax = 1.0 * sum_parallax / int(corres.size());
-            // 平均视差大于一定数值，使用motion_estimator求解第i帧和第WINDOW_SIZE帧(就是滑窗最后一帧)之间的位姿变换
-            if (average_parallax * 460 > 30 && m_estimator.solveRelativeRT(corres, relative_R, relative_T))
+            // 平均视差大于一定数值，说明两帧之间有充分运动，使用motion_estimator求解第i帧和第WINDOW_SIZE帧(就是滑窗最后一帧)之间的位姿变换
+            if (average_parallax * 460 > 30 && m_estimator.solveRelativeRT(corres, relative_R, relative_T))//Rrl,trl(r是WindowSize,l是待选择的帧)
             {
                 l = i; // 计算成功了！
                 ROS_DEBUG("average_parallax %f choose l %d and newest frame to triangulate the whole structure", average_parallax * 460, l);

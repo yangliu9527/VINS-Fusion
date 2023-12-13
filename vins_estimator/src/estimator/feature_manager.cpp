@@ -140,12 +140,16 @@ vector<pair<Vector3d, Vector3d>> FeatureManager::getCorresponding(int frame_coun
         if (it.start_frame <= frame_count_l && it.endFrame() >= frame_count_r) 
         {
             Vector3d a = Vector3d::Zero(), b = Vector3d::Zero();
-            int idx_l = frame_count_l - it.start_frame;
-            int idx_r = frame_count_r - it.start_frame;
 
-            a = it.feature_per_frame[idx_l].point;
+            //一个空间点存放观测特征点feature_per_frame对应关系如下：
+            // 观测帧在滑窗内的序号：start_frame-start_frame+1-start_frame+2-...-end_frame
+            // 观测特征点在feature_per_frame中的索引：0-1-2-..-n
+            int idx_l = frame_count_l - it.start_frame;//获取该地图点在前一帧的观测索引
+            int idx_r = frame_count_r - it.start_frame;//获取该地图点在后一帧的观测索引
 
-            b = it.feature_per_frame[idx_r].point;
+            a = it.feature_per_frame[idx_l].point;//取归一化平面坐标
+
+            b = it.feature_per_frame[idx_r].point;//取归一化平面坐标
 
             corres.push_back(make_pair(a, b));
         }
