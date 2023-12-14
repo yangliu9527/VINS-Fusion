@@ -175,12 +175,12 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	q[l].y() = 0;
 	q[l].z() = 0;
 	T[l].setZero();
-	//自然的，第frame_num - 1帧的位姿就是之前计算出来的
-	q[frame_num - 1] = q[l] * Quaterniond(relative_R);
-	T[frame_num - 1] = relative_T;
+	q[frame_num - 1] = q[l] * Quaterniond(relative_R); //frame_num = frame_count+1 = WINDOW_SIZE+1 => frame_num-1 = frame_count = WINDOW_SIZE
+	T[frame_num - 1] = relative_T; //滑窗内最后一帧位姿赋值
 	//cout << "init q_l " << q[l].w() << " " << q[l].vec().transpose() << endl;
 	//cout << "init t_l " << T[l].transpose() << endl;
 
+	//下面变量都是为了存放SFM后的位姿
 	//rotate to cam frame
 	Matrix3d c_Rotation[frame_num];
 	Vector3d c_Translation[frame_num];
@@ -189,7 +189,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	double c_translation[frame_num][3];
 	Eigen::Matrix<double, 3, 4> Pose[frame_num];
 
-	//
+	//给第l帧和最后一帧的变量赋值
 	c_Quat[l] = q[l].inverse();
 	c_Rotation[l] = c_Quat[l].toRotationMatrix();
 	c_Translation[l] = -1 * (c_Rotation[l] * T[l]);
@@ -203,15 +203,15 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	Pose[frame_num - 1].block<3, 1>(0, 3) = c_Translation[frame_num - 1];
 
 
-	//1: trangulate between l ----- frame_num - 1
-	//2: solve pnp l + 1; trangulate l + 1 ------- frame_num - 1; 
+	//step1: trangulate between l ----- frame_num - 1
+	//step2: solve pnp l + 1; trangulate l + 1 ------- frame_num - 1; 
 	//求解顺序：1.三角化第l帧和第frame_num-1帧的特征点，2.对于第i帧，将第i-1帧R和P作为初始值，利用pnp求解第i帧位置姿态 3.利用第i帧的位置和姿态三角化特征点
 	for (int i = l; i < frame_num - 1 ; i++)
 	{
 		// solve pnp
-		if (i > l)//在l帧往后的帧中找特征
+		if (i > l)//利用PnP求解l帧到WINDOW_SIZE帧之间的位姿
 		{
-			Matrix3d R_initial = c_Rotation[i - 1];
+			Matrix3d R_initial = c_Rotation[i - 1];//第i帧的位姿以第i-1帧
 			Vector3d P_initial = c_Translation[i - 1];
 			if(!solveFrameByPnP(R_initial, P_initial, i, sfm_f))//计算第i帧的初始位姿
 				return false;
@@ -227,17 +227,17 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		//在i>l的时候也运行这个函数
 		triangulateTwoFrames(i, Pose[i], frame_num - 1, Pose[frame_num - 1], sfm_f);
 	}
-	//3: triangulate l-----l+1 l+2 ... frame_num -2
-	//之前已经把第l至第frame-1帧的位置和姿态求解出来了，但有些点可能还没三角化，利用第l帧将后面帧的特征点三角化
+	//step3: triangulate l-----l+1 l+2 ... frame_num -2
+	//之前已经把第l至第WINDOW_SIZE帧的位置和姿态求解出来了，也把第l帧和第WINDOW_SIZE的共视点三角化了，但有些点可能还没三角化，此处利用第l帧将后面帧的特征点三角化
 	for (int i = l + 1; i < frame_num - 1; i++)
 		triangulateTwoFrames(l, Pose[l], i, Pose[i], sfm_f);
-	//4: solve pnp l-1; triangulate l-1 ----- l
+	//step4: solve pnp l-1; triangulate l-1 ----- l
 	//             l-2              l-2 ----- l
 	//将第i+1帧的位姿作为初值，估计第i帧的位姿，并三角化第i和第l帧之间的匹配点
 	for (int i = l - 1; i >= 0; i--)
 	{
 		//solve pnp
-		Matrix3d R_initial = c_Rotation[i + 1];
+		Matrix3d R_initial = c_Rotation[i + 1];//此时每帧位姿以后一帧位姿为初值
 		Vector3d P_initial = c_Translation[i + 1];
 		if(!solveFrameByPnP(R_initial, P_initial, i, sfm_f))
 			return false;
@@ -249,7 +249,8 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		//triangulate
 		triangulateTwoFrames(i, Pose[i], l, Pose[l], sfm_f);
 	}
-	//5: triangulate all other points
+
+	//step5: triangulate all other points
 	//利用计算出的位姿三角化剩余的点
 	for (int j = 0; j < feature_num; j++)
 	{
@@ -264,8 +265,8 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 			point1 = sfm_f[j].observation.back().second;
 			Vector3d point_3d;
 			triangulatePoint(Pose[frame_0], Pose[frame_1], point0, point1, point_3d);
-			sfm_f[j].state = true;
-			sfm_f[j].position[0] = point_3d(0);
+			sfm_f[j].state = true; //所有三角化过了的特征都会置state为true
+			sfm_f[j].position[0] = point_3d(0);//将sfm的到的空间点坐标赋予sfm_feature的position
 			sfm_f[j].position[1] = point_3d(1);
 			sfm_f[j].position[2] = point_3d(2);
 			//cout << "trangulated : " << frame_0 << " " << frame_1 << "  3d point : "  << j << "  " << point_3d.transpose() << endl;
@@ -309,7 +310,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		{
 			problem.SetParameterBlockConstant(c_rotation[i]);
 		}
-		if (i == l || i == frame_num - 1)//第frame_num-1帧平移固定
+		if (i == l || i == frame_num - 1)//第l帧和第frame_num-1帧平移固定
 		{
 			problem.SetParameterBlockConstant(c_translation[i]);
 		}
@@ -317,7 +318,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 
 	for (int i = 0; i < feature_num; i++)
 	{
-		if (sfm_f[i].state != true)
+		if (sfm_f[i].state != true)//没有被三角化的点不参与优化
 			continue;
 		for (int j = 0; j < int(sfm_f[i].observation.size()); j++)
 		{
@@ -327,7 +328,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 												sfm_f[i].observation[j].second.y());//重投影误差函数
 
     		problem.AddResidualBlock(cost_function, NULL, c_rotation[l], c_translation[l], 
-    								sfm_f[i].position);//之前只添加了旋转和平移状态量，现在把特征点位置也作为状态量添加进来了
+    								sfm_f[i].position);
 		}
 
 	}
@@ -350,7 +351,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		return false;
 	}
 
-	//取出优化后的旋转、平移、特征点位置
+	//取出优化后的旋转、平移
 	for (int i = 0; i < frame_num; i++)
 	{
 		q[i].w() = c_rotation[i][0]; 
@@ -366,6 +367,8 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		T[i] = -1 * (q[i] * Vector3d(c_translation[i][0], c_translation[i][1], c_translation[i][2]));
 		//cout << "final  t" << " i " << i <<"  " << T[i](0) <<"  "<< T[i](1) <<"  "<< T[i](2) << endl;
 	}
+
+	//将sfm的到的三维点坐标按feature_id保存
 	for (int i = 0; i < (int)sfm_f.size(); i++)
 	{
 		if(sfm_f[i].state)

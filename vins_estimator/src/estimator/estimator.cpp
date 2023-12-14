@@ -723,6 +723,7 @@ bool Estimator::initialStructure()
         return false;
     }
 
+    //运行到这说明全局sfm成功了，接下来求解全局PnP
     // solve pnp for all frame
     map<double, ImageFrame>::iterator frame_it;
     map<int, Vector3d>::iterator it;
