@@ -733,7 +733,7 @@ bool Estimator::initialStructure()
     {
         // provide initial guess
         cv::Mat r, rvec, t, D, tmp_r;
-        if ((frame_it->first) == Headers[i]) // 窗口内的帧位姿态都已经sfm出来了，直接赋值，设为关键帧
+        if ((frame_it->first) == Headers[i]) // 窗口内的帧位姿态都已经sfm出来了，直接给ImageFrame的位姿赋值，设为关键帧
         {
             frame_it->second.is_key_frame = true;
             frame_it->second.R = Q[i].toRotationMatrix() * RIC[0].transpose();
@@ -784,6 +784,8 @@ bool Estimator::initialStructure()
             ROS_DEBUG("solve pnp fail!");
             return false;
         }
+
+        //如果PnP成功了，就将PnP得到的位姿信息赋予ImageFrame
         cv::Rodrigues(rvec, r);
         MatrixXd R_pnp, tmp_R_pnp;
         cv::cv2eigen(r, tmp_R_pnp);
@@ -810,8 +812,8 @@ bool Estimator::visualInitialAlign()
     TicToc t_g;
     VectorXd x;
     // solve scale
-    // 惯性初始化，求解bias和重力方向，完成视觉-惯性对齐
-    // 送进这个函数是estimator滑窗中的陀螺零偏、重力引用，以及用于存放尺度因子的x
+    // 惯性初始化，求解陀螺bias和重力方向，完成视觉-惯性对齐
+    // 送进这个函数是estimator滑窗中的陀螺零偏指针、重力引用，以及用于存放尺度因子的x
     // 这里面都是构造残差项，通过令error=0构造Hx=b线性方程，利用乔里斯基分解直接求解线性方程，不是通过非线性优化求解的
     bool result = VisualIMUAlignment(all_image_frame, Bgs, g, x);
     if (!result)

@@ -24,15 +24,15 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
     map<double, ImageFrame>::iterator frame_j;
     for (frame_i = all_image_frame.begin(); next(frame_i) != all_image_frame.end(); frame_i++)
     {
-        frame_j = next(frame_i);
+        frame_j = next(frame_i);//取第i帧的下一帧
         MatrixXd tmp_A(3, 3);
         tmp_A.setZero();
         VectorXd tmp_b(3);
         tmp_b.setZero();
 
-        Eigen::Quaterniond q_ij(frame_i->second.R.transpose() * frame_j->second.R);//取出sfm得到的相对姿态变换
+        Eigen::Quaterniond q_ij(frame_i->second.R.transpose() * frame_j->second.R);//取出sfm得到的相对姿态变换，这里其实可以看出，姿态表示为Rcw
         tmp_A = frame_j->second.pre_integration->jacobian.template block<3, 3>(O_R, O_BG);//取预积分姿态测量值对陀螺零偏的雅可比
-        tmp_b = 2 * (frame_j->second.pre_integration->delta_q.inverse() * q_ij).vec();//预积分姿态测量值与sfm得到的相对位姿变换之间的误差
+        tmp_b = 2 * (frame_j->second.pre_integration->delta_q.inverse() * q_ij).vec();//预积分姿态测量值与sfm得到的相对姿态变换之间的误差
         A += tmp_A.transpose() * tmp_A;
         b += tmp_A.transpose() * tmp_b;
     }
@@ -41,8 +41,8 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
     ROS_WARN_STREAM("gyroscope bias initial calibration " << delta_bg.transpose());
 
     //更新陀螺零偏
-    for (int i = 0; i <= WINDOW_SIZE; i++)
-        Bgs[i] += delta_bg;
+    for (int i = 0; i <= WINDOW_SIZE; i++)//窗口内的零偏都一样
+        Bgs[i] += delta_bg;//给窗口内的陀螺零偏赋值
 
     //重新进行预积分测量值计算
     for (frame_i = all_image_frame.begin(); next(frame_i) != all_image_frame.end( ); frame_i++)
