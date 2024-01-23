@@ -521,7 +521,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                 if (ESTIMATE_EXTRINSIC != 2 && (header - initial_timestamp) > 0.1)
                 {
 
-                    result = initialStructure();//视觉惯性初始化：获取初始的R、P、V和重力、尺度、零偏
+                    result = initialStructure();//视觉惯性初始化：获取初始的R、P、V和重力、尺度、陀螺零偏
                     initial_timestamp = header;
                 }
                 if (result)
@@ -853,6 +853,7 @@ bool Estimator::visualInitialAlign()
         }
     }
 
+    //将位姿调整到世界系下
     Matrix3d R0 = Utility::g2R(g);
     double yaw = Utility::R2ypr(R0 * Rs[0]).x();
     R0 = Utility::ypr2R(Eigen::Vector3d{-yaw, 0, 0}) * R0;

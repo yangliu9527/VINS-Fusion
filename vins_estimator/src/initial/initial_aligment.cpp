@@ -44,7 +44,7 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
     for (int i = 0; i <= WINDOW_SIZE; i++)//窗口内的零偏都一样
         Bgs[i] += delta_bg;//给窗口内的陀螺零偏赋值
 
-    //重新进行预积分测量值计算
+    //用更新后的陀螺零偏重新计算预积分测量值
     for (frame_i = all_image_frame.begin(); next(frame_i) != all_image_frame.end( ); frame_i++)
     {
         frame_j = next(frame_i);
@@ -68,7 +68,7 @@ MatrixXd TangentBasis(Vector3d &g0)
     return bc;
 }
 
-/// @brief 优化重力方向
+/// @brief 根据重力模值约束进一步优化所有需要初始化的状态
 /// @param all_image_frame 
 /// @param g 
 /// @param x 
@@ -214,7 +214,7 @@ bool LinearAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &g, Vect
     {
         return false;
     }
-    //求解的g再进行优化（优化重力方向及其它状态）
+    //利用求解出的g再进行进一步优化（优化重力方向及其它状态）
     RefineGravity(all_image_frame, g, x);
     s = (x.tail<1>())(0) / 100.0;
     (x.tail<1>())(0) = s;
@@ -235,7 +235,7 @@ bool VisualIMUAlignment(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs,
 {
     //先优化陀螺零偏
     solveGyroscopeBias(all_image_frame, Bgs);
-    //再初始化速度、重力、尺度因子
+    //初始化速度、重力、尺度因子，且根据估计出的重力方向把所有变量（位置、位姿）都调整到世界系下
     if(LinearAlignment(all_image_frame, g, x))
         return true;
     else 

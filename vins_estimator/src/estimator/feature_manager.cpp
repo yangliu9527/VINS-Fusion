@@ -61,7 +61,7 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
     last_average_parallax = 0;
     new_feature_num = 0;
     long_track_num = 0;
-    for (auto &id_pts : image) // 遍历左目相机每个特征（这里id_pts名字取得不好，只有一个pt而已）
+    for (auto &id_pts : image) // 遍历左目相机每个特征（这里id_pts名字取得不好，只有一个pt而已,当然，算上右目确实有俩）
     {
         FeaturePerFrame f_per_fra(id_pts.second[0].second, td); // 构建左目观测，即对于当前帧的观测（类似于ORB-SLAM中一个keypoint）
         assert(id_pts.second[0].first == 0);
@@ -108,7 +108,7 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
             it_per_id.start_frame + int(it_per_id.feature_per_frame.size()) - 1 >= frame_count - 1)// 该帧最后一次被观测至少是倒数第二帧（这个条件就是保证倒数第二和倒数第三帧都有观测）
         {
             //计算倒数第二帧和倒数第三帧该特征的的视差（倒数第一帧是当前帧）
-            parallax_sum += compensatedParallax2(it_per_id, frame_count); // 计算
+            parallax_sum += compensatedParallax2(it_per_id, frame_count); 
             parallax_num++;
         }
     }
