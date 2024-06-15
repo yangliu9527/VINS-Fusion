@@ -1112,16 +1112,21 @@ void Estimator::optimization()
     loss_function = new ceres::HuberLoss(1.0);
     // loss_function = new ceres::CauchyLoss(1.0 / FOCAL_LENGTH);
     // ceres::LossFunction* loss_function = new ceres::HuberLoss(1.0);
+
+    //将滑窗内的位姿添加到参数块中
     for (int i = 0; i < frame_count + 1; i++)
     {
         ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
         problem.AddParameterBlock(para_Pose[i], SIZE_POSE, local_parameterization);
+        //如果是惯性模式，将加速度计零偏添加到参数块中
         if (USE_IMU)
             problem.AddParameterBlock(para_SpeedBias[i], SIZE_SPEEDBIAS);
     }
+    //如果不是惯性模式，固定滑窗内第一帧位姿
     if (!USE_IMU)
         problem.SetParameterBlockConstant(para_Pose[0]);
 
+    //判断是否估计外参
     for (int i = 0; i < NUM_OF_CAM; i++)
     {
         ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
@@ -1139,9 +1144,11 @@ void Estimator::optimization()
     }
     problem.AddParameterBlock(para_Td[0], 1);
 
+    //判断是否估计时间延迟
     if (!ESTIMATE_TD || Vs[0].norm() < 0.2)
         problem.SetParameterBlockConstant(para_Td[0]);
 
+    //判断先验信息是否可用，添加先验残差块
     if (last_marginalization_info && last_marginalization_info->valid)
     {
         // construct new marginlization_factor
@@ -1149,6 +1156,8 @@ void Estimator::optimization()
         problem.AddResidualBlock(marginalization_factor, NULL,
                                  last_marginalization_parameter_blocks);
     }
+
+    //如果是惯性模式，添加预积分因子
     if (USE_IMU)
     {
         for (int i = 0; i < frame_count; i++)
@@ -1161,40 +1170,54 @@ void Estimator::optimization()
         }
     }
 
+
     int f_m_cnt = 0;
     int feature_index = -1;
+    //遍历所有路标点，添加视觉观测信息
     for (auto &it_per_id : f_manager.feature)
     {
+        //遍历一个路标点被观测的特征点，要是少于4帧观测就放弃使用了
         it_per_id.used_num = it_per_id.feature_per_frame.size();
         if (it_per_id.used_num < 4)
             continue;
 
         ++feature_index;
 
+        //取该路标点的起始观测帧序号
         int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
 
+        //取出起始观测帧中的归一化平面坐标
         Vector3d pts_i = it_per_id.feature_per_frame[0].point;
 
+        //遍历该路标点的观测特征
         for (auto &it_per_frame : it_per_id.feature_per_frame)
         {
             imu_j++;
+            //当观测特征不是起始帧，构建约束两帧之间的重投影误差
             if (imu_i != imu_j)
             {
+                //取出遍历到的观测帧中的归一化平面坐标
                 Vector3d pts_j = it_per_frame.point;
+                //构建投影因子（路标点在起始帧和另一帧的左目相机间形成的约束）
                 ProjectionTwoFrameOneCamFactor *f_td = new ProjectionTwoFrameOneCamFactor(pts_i, pts_j, it_per_id.feature_per_frame[0].velocity, it_per_frame.velocity,
                                                                                           it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td);
+                //将因子与参数块添加到优化问题中
                 problem.AddResidualBlock(f_td, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Feature[feature_index], para_Td[0]);
             }
 
+            //如果是双目的情况，还需要增加额外观测
             if (STEREO && it_per_frame.is_stereo)
             {
+                //取出右目观测到的归一化平面坐标
                 Vector3d pts_j_right = it_per_frame.pointRight;
+                //如果不是起始帧，则构建一个右目投影因子（路标点在起始帧左目相机和另一帧的右目相机间形成的约束）
                 if (imu_i != imu_j)
                 {
                     ProjectionTwoFrameTwoCamFactor *f = new ProjectionTwoFrameTwoCamFactor(pts_i, pts_j_right, it_per_id.feature_per_frame[0].velocity, it_per_frame.velocityRight,
                                                                                            it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td);
                     problem.AddResidualBlock(f, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Ex_Pose[1], para_Feature[feature_index], para_Td[0]);
                 }
+                //如果是起始帧，则构建一个右目投影因子（路标点在起始帧左目相机和起始帧右目相机间形成的约束，这个主要是用来优化外参的）
                 else
                 {
                     ProjectionOneFrameTwoCamFactor *f = new ProjectionOneFrameTwoCamFactor(pts_i, pts_j_right, it_per_id.feature_per_frame[0].velocity, it_per_frame.velocityRight,
@@ -1206,6 +1229,7 @@ void Estimator::optimization()
         }
     }
 
+    //下面这些就是调用优化器求解
     ROS_DEBUG("visual measurement count: %d", f_m_cnt);
     // printf("prepare for ceres: %f \n", t_prepare.toc());
 
@@ -1229,13 +1253,17 @@ void Estimator::optimization()
     ROS_DEBUG("Iterations : %d", static_cast<int>(summary.iterations.size()));
     // printf("solver costs: %f \n", t_solver.toc());
 
+    //将所有优化后的变量转换回vector
     double2vector();
     // printf("frame_count: %d \n", frame_count);
 
+    //如果当前滑窗内的帧数还没到WINDOWSIZE，就不进行边缘化了
     if (frame_count < WINDOW_SIZE)
         return;
 
+
     TicToc t_whole_marginalization;
+    //如果是边缘化最老帧
     if (marginalization_flag == MARGIN_OLD)
     {
         MarginalizationInfo *marginalization_info = new MarginalizationInfo();
