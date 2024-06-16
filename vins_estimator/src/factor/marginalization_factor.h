@@ -21,6 +21,7 @@
 
 const int NUM_THREADS = 4;
 
+//用于保存残差块信息
 struct ResidualBlockInfo
 {
     ResidualBlockInfo(ceres::CostFunction *_cost_function, ceres::LossFunction *_loss_function, std::vector<double *> _parameter_blocks, std::vector<int> _drop_set)
@@ -28,16 +29,16 @@ struct ResidualBlockInfo
 
     void Evaluate();
 
-    ceres::CostFunction *cost_function;
-    ceres::LossFunction *loss_function;
-    std::vector<double *> parameter_blocks;
-    std::vector<int> drop_set;
+    ceres::CostFunction *cost_function;//残差的损失函数
+    ceres::LossFunction *loss_function;//残差的核函数（例如Huber）
+    std::vector<double *> parameter_blocks;//残差对应的参数块（数组指针）
+    std::vector<int> drop_set;//需要丢失的变量索引
 
-    double **raw_jacobians;
-    std::vector<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> jacobians;
-    Eigen::VectorXd residuals;
+    double **raw_jacobians;//数组形式的雅可比
+    std::vector<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> jacobians;//Eigen Vector形式的雅可比
+    Eigen::VectorXd residuals;//残差
 
-    int localSize(int size)
+    int localSize(int size)//局部参数尺寸（如果是7维，说明是4维四元数+3维位置的位姿，其中四元数过参数化了，所以localsize是6维，其它形式的变量仍为原来的尺寸，这里我也觉得写得粗糙了点）
     {
         return size == 7 ? 6 : size;
     }

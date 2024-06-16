@@ -1130,6 +1130,7 @@ void Estimator::optimization()
     for (int i = 0; i < NUM_OF_CAM; i++)
     {
         ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
+        //添加外参参数块
         problem.AddParameterBlock(para_Ex_Pose[i], SIZE_POSE, local_parameterization);
         if ((ESTIMATE_EXTRINSIC && frame_count == WINDOW_SIZE && Vs[0].norm() > 0.2) || openExEstimation)
         {
@@ -1142,8 +1143,9 @@ void Estimator::optimization()
             problem.SetParameterBlockConstant(para_Ex_Pose[i]);
         }
     }
-    problem.AddParameterBlock(para_Td[0], 1);
 
+    //添加时间延迟参数块
+    problem.AddParameterBlock(para_Td[0], 1);
     //判断是否估计时间延迟
     if (!ESTIMATE_TD || Vs[0].norm() < 0.2)
         problem.SetParameterBlockConstant(para_Td[0]);
@@ -1152,7 +1154,9 @@ void Estimator::optimization()
     if (last_marginalization_info && last_marginalization_info->valid)
     {
         // construct new marginlization_factor
+        //构建先验因子
         MarginalizationFactor *marginalization_factor = new MarginalizationFactor(last_marginalization_info);
+        //添加残差块，先验因子和参数块的对应关系是边缘化过程中确认的
         problem.AddResidualBlock(marginalization_factor, NULL,
                                  last_marginalization_parameter_blocks);
     }
@@ -1163,9 +1167,12 @@ void Estimator::optimization()
         for (int i = 0; i < frame_count; i++)
         {
             int j = i + 1;
+            //如果两帧之间有10秒间隔，预积分就失效了，不用它作为约束了
             if (pre_integrations[j]->sum_dt > 10.0)
                 continue;
+            //构建预积分因子
             IMUFactor *imu_factor = new IMUFactor(pre_integrations[j]);
+            //添加前后两帧的残差参数块
             problem.AddResidualBlock(imu_factor, NULL, para_Pose[i], para_SpeedBias[i], para_Pose[j], para_SpeedBias[j]);
         }
     }
@@ -1177,6 +1184,7 @@ void Estimator::optimization()
     for (auto &it_per_id : f_manager.feature)
     {
         //遍历一个路标点被观测的特征点，要是少于4帧观测就放弃使用了
+        //（这个和feautre_manager.getDepthVector(),feature_manager.getFeatureCount()中的计数都一致，但我觉得写的不妥，容易在修改代码时出错)
         it_per_id.used_num = it_per_id.feature_per_frame.size();
         if (it_per_id.used_num < 4)
             continue;
@@ -1201,7 +1209,7 @@ void Estimator::optimization()
                 //构建投影因子（路标点在起始帧和另一帧的左目相机间形成的约束）
                 ProjectionTwoFrameOneCamFactor *f_td = new ProjectionTwoFrameOneCamFactor(pts_i, pts_j, it_per_id.feature_per_frame[0].velocity, it_per_frame.velocity,
                                                                                           it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td);
-                //将因子与参数块添加到优化问题中
+                //将因子与残差参数块添加到优化问题中
                 problem.AddResidualBlock(f_td, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Feature[feature_index], para_Td[0]);
             }
 
