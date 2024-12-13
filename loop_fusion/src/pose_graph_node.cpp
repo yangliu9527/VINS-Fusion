@@ -251,6 +251,7 @@ void process()
         nav_msgs::Odometry::ConstPtr pose_msg = NULL;
 
         // find out the messages with same time stamp
+        //找到相同时间戳的数据（因为VIO发布的数据
         m_buf.lock();
         if(!image_buf.empty() && !point_buf.empty() && !pose_buf.empty())
         {
@@ -434,13 +435,17 @@ int main(int argc, char **argv)
     ROW = fsSettings["image_height"];
     COL = fsSettings["image_width"];
     std::string pkg_path = ros::package::getPath("loop_fusion");
+
+    //获取视觉词典路径
     string vocabulary_file = pkg_path + "/../support_files/brief_k10L6.bin";
     cout << "vocabulary_file" << vocabulary_file << endl;
+    //位姿图读取视觉词典
     posegraph.loadVocabulary(vocabulary_file);
-
+    //获取brief描述子的提取pattern文件路径
     BRIEF_PATTERN_FILE = pkg_path + "/../support_files/brief_pattern.yml";
     cout << "BRIEF_PATTERN_FILE" << BRIEF_PATTERN_FILE << endl;
 
+    //生成相机投影模型
     int pn = config_file.find_last_of('/');
     std::string configPath = config_file.substr(0, pn);
     std::string cam0Calib;
@@ -449,16 +454,19 @@ int main(int argc, char **argv)
     printf("cam calib path: %s\n", cam0Path.c_str());
     m_camera = camodocal::CameraFactory::instance()->generateCameraFromYamlFile(cam0Path.c_str());
 
+    //只要左目图像
     fsSettings["image0_topic"] >> IMAGE_TOPIC;        
     fsSettings["pose_graph_save_path"] >> POSE_GRAPH_SAVE_PATH;
     fsSettings["output_path"] >> VINS_RESULT_PATH;
     fsSettings["save_image"] >> DEBUG_IMAGE;
 
     LOAD_PREVIOUS_POSE_GRAPH = fsSettings["load_previous_pose_graph"];
+    //保存loop_fusion的结果文件
     VINS_RESULT_PATH = VINS_RESULT_PATH + "/vio_loop.csv";
     std::ofstream fout(VINS_RESULT_PATH, std::ios::out);
     fout.close();
 
+    //设置是否是惯性模式
     int USE_IMU = fsSettings["imu"];
     posegraph.setIMUFlag(USE_IMU);
     fsSettings.release();
@@ -478,22 +486,33 @@ int main(int argc, char **argv)
         load_flag = 1;
     }
 
+    //订阅VIO发布的位姿数据
     ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 2000, vio_callback);
+    //订阅图像数据（仅左目）
     ros::Subscriber sub_image = n.subscribe(IMAGE_TOPIC, 2000, image_callback);
+    //订阅VIO发布的关键帧位姿
     ros::Subscriber sub_pose = n.subscribe("/vins_estimator/keyframe_pose", 2000, pose_callback);
+    //订阅VIO发布的外参
     ros::Subscriber sub_extrinsic = n.subscribe("/vins_estimator/extrinsic", 2000, extrinsic_callback);
+    //订阅VIO发布的关键帧特征点
     ros::Subscriber sub_point = n.subscribe("/vins_estimator/keyframe_point", 2000, point_callback);
+    //订阅VIO发布的边缘化过的特征点？
     ros::Subscriber sub_margin_point = n.subscribe("/vins_estimator/margin_cloud", 2000, margin_point_callback);
-
+    //发布匹配的图像
     pub_match_img = n.advertise<sensor_msgs::Image>("match_image", 1000);
+    //发布回环输出的图像
     pub_camera_pose_visual = n.advertise<visualization_msgs::MarkerArray>("camera_pose_visual", 1000);
+    //发布经过矫正的点云
     pub_point_cloud = n.advertise<sensor_msgs::PointCloud>("point_cloud_loop_rect", 1000);
+    //发布经过矫正的边缘化后的点云
     pub_margin_cloud = n.advertise<sensor_msgs::PointCloud>("margin_cloud_loop_rect", 1000);
+    //发布经过矫正的里程计位姿
     pub_odometry_rect = n.advertise<nav_msgs::Odometry>("odometry_rect", 1000);
 
     std::thread measurement_process;
     std::thread keyboard_command_process;
 
+    //主处理线程
     measurement_process = std::thread(process);
     keyboard_command_process = std::thread(command);
     
